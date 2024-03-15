@@ -1,0 +1,95 @@
+Program.Sub.Preflight.Start
+Program.External.Include.Library("GCG_6024_ErrorHandling.lib")
+V.Global.iCon.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: BixRB
+'Date: 17 Jun 2020
+'GCG_6024_PODueDateCheck.g2u
+'Toolcraft, Inc.
+'On the PO Receipts screen, check if the PO Due Date is before today. If it is, display a message box with 'Yes' and 'No' buttons to continue
+V.Local.sPO.Declare
+V.Local.sDue.Declare
+V.Local.sMsg.Declare
+V.Local.sRec.Declare
+V.Local.iCnt.Declare
+V.Local.iRet.Declare
+V.Local.dDue.Declare
+V.Local.dRec.Declare
+F.Intrinsic.Control.Try
+
+F.Intrinsic.Control.If(V.Caller.Hook,=,15041)
+	'PO Receipts - PUS100 - PRE-OK HOOK
+	F.Intrinsic.String.LPad(V.Passed.000002,"0",7,V.Local.sPO)
+	F.Intrinsic.String.LPad(V.Passed.000009,"0",8,V.Local.sRec)
+	F.Intrinsic.Date.ConvertDString(V.Local.sRec,"YYYYMMDD",V.Local.dRec)
+	F.Intrinsic.Control.CallSub(GetPODueDate,"PO",V.Local.sPO,"Rec",V.Local.dRec,"GRID","AUX001")
+	F.Intrinsic.Control.If(V.DataTable.dtLatePOLines.RowCount,>,0)
+		'Late lines recorded, notify user
+		'DueDate is earlier than today, report to user and wait for input
+		V.Local.sMsg.Set("The following receipt")
+		F.Intrinsic.Control.If(V.DataTable.dtLatePOLines.RowCount,>,1)
+			F.Intrinsic.String.Build("{0}s",V.Local.sMsg,V.Local.sMsg)
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.String.Build("{0} to PO {1} will be received as late:",V.Local.sMsg,V.Local.sPO,V.Local.sMsg)
+		F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtLatePOLines.RowCount--,1)
+			V.Local.dDue.Set(V.DataTable.dtLatePOLines(V.Local.iCnt).DueDate!FieldVal)
+			F.Intrinsic.String.Build("{0}{1}Line: {2}, Qty: {3}, Due Date: {4}",V.Local.sMsg,V.Ambient.NewLine,V.DataTable.dtLatePOLines(V.Local.iCnt).Line!FieldVal,V.DataTable.dtLatePOLines(V.Local.iCnt).Qty!FieldValString,V.Local.dDue.String,V.Local.sMsg)
+		F.Intrinsic.Control.Next(V.Local.iCnt)
+		F.Intrinsic.String.Build("{0}{1}Do you wish to continue?",V.Local.sMsg,V.Ambient.NewLine,V.Local.sMsg)
+		F.Intrinsic.UI.Msgbox(V.Local.sMsg,"Late PO Receipt",4,V.Local.iRet)
+		F.Intrinsic.Control.If(V.Local.iRet,=,V.Ambient.MsgBoxNo)
+			'User selected 'No', set the override variable to 1 and end
+			V.Passed.777777.Set(1)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMessage,"ScriptFile",V.Caller.ScriptFile,"CurrentSubroutine",V.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.GetPODueDate.Start
+'Query DataBase for PO Due Date
+V.Local.sRow.Declare
+V.Local.sLine.Declare
+V.Local.iRows.Declare
+V.Local.iCnt.Declare
+V.Local.fQty.Declare
+V.Local.dDue.Declare
+F.Intrinsic.Control.Try
+
+F.Data.DataTable.Create("dtLatePOLines",True)
+F.Data.DataTable.AddColumn("dtLatePOLines","PO","String",V.Args.PO)
+F.Data.DataTable.AddColumn("dtLatePOLines","Line","String")
+F.Data.DataTable.AddColumn("dtLatePOLines","DueDate","Date")
+F.Data.DataTable.AddColumn("dtLatePOLines","Qty","Float")
+
+F.Intrinsic.BDF.Load("POLines",V.Args.GRID)
+
+F.Intrinsic.BDF.ReadRowCount("POLines",V.Local.iRows)
+F.Intrinsic.Math.Sub(V.Local.iRows,1,V.Local.iRows)
+
+F.Intrinsic.Control.For(V.Local.iCnt,0,V.Local.iRows,1)
+	F.Intrinsic.BDF.ReadRow("POLines",V.Local.iCnt,V.Local.sRow)
+	F.Intrinsic.String.Split(V.Local.sRow,"|~|",V.Local.sRow)
+	F.Intrinsic.Control.If(V.Local.sRow(13).Float,!=,0,or,V.Local.sRow(14).Float,!=,0)
+		'Line has been received, check due date
+		V.Local.dDue.Set(V.Local.sRow(8))
+		F.Intrinsic.Control.If(V.Local.dDue,<,V.Args.Rec)
+			'Line is received late, add to DT
+			F.Intrinsic.String.LPad(V.Local.sRow(0),"0",3,V.Local.sLine)
+			F.Intrinsic.Math.Add(V.Local.sRow(13).Float,V.Local.sRow(14).Float,V.Local.fQty)
+			F.Data.DataTable.AddRow("dtLatePOLines","Line",V.Local.sLine,"DueDate",V.Local.dDue,"Qty",V.Local.fQty)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.iCnt)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMessage,"ScriptFile",V.Caller.ScriptFile,"CurrentSubroutine",V.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.GetPODueDate.End
